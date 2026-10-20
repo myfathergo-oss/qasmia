@@ -1,0 +1,62 @@
+version: '3.9'
+
+services:
+  # ── PostgreSQL ──────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: qasmia_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       qasmia_db
+      POSTGRES_USER:     qasmia_user
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme_in_production}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./backend/migrations/001_initial_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qasmia_user -d qasmia_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Backend API ────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: qasmia_api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL:               postgresql://qasmia_user:${DB_PASSWORD:-changeme_in_production}@db:5432/qasmia_db
+      JWT_SECRET:                 ${JWT_SECRET:-change_this_secret}
+      JWT_EXPIRES_IN:             7d
+      PORT:                       3001
+      NODE_ENV:                   production
+      SETUP_ADMIN_USERNAME:       ustad0001
+      SETUP_ADMIN_TEMP_PASSWORD:  ${SETUP_ADMIN_TEMP_PASSWORD:-Change_Me_On_First_Login!}
+      CORS_ORIGIN:                http://localhost
+    ports:
+      - "3001:3001"
+    volumes:
+      - uploads:/app/uploads
+
+  # ── Frontend (serve built PWA) ─────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: qasmia_web
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+
+volumes:
+  pgdata:
+  uploads:
